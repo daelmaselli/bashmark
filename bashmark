@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# curl -s http://www.lnf.infn.it/~dmaselli/benchmark.sh | bash
+
+ddbs=$(( 1 *1024 *1024 ))
+
+for needed_prog in dd openssl curl df stat awk timeout; do
+  which $needed_prog > /dev/null & 2>&1
+  if [ $? != 0 ]; then
+    echo "$needed_prog needed not installed or not in path. Exiting."
+    exit 1
+  fi
+done
+
+####
+
+function pmsg {
+  msg=$1
+  printf "%-50s " "$msg"
+}
+
+function pres {
+  num=$1
+  un=$2
+  IFS=	
+  echo "$num"	"$un" | awk '{printf "%10.1f %5s\n", $1, $2}'
+}
+
+####
+
+echo "-- Testing CPU --"
+
+pmsg "RSA 1024bit Key sign and verify:"
+rsaout=`openssl speed rsa1024 -mr -multi $(nproc --all) 2>&1 | tail -1`
+#+F2:1:1024:0.000175:0.000012
+pres `echo "$rsaout" | tr : ' ' | awk '{ print 1/($4+$5) } '` "/s"
+
+pmsg "AES-128 encryption (maybe in hardware):"
+aesout=`openssl speed aes-128-cbc -mr -multi $(nproc --all) 2>&1 | tail -1`
+#+F:16:aes-128 cbc:143965130.67:160959680.00:148268117.34:274018986.66:282017792.00
+pres `echo "$aesout" | cut -f2 -d\  | tr : ' ' | awk '{ print ($1+$2+$3+$4+$5)/5/1024/1024 }'` MB/s
+echo
+
+####
+
+echo "-- Testing DISK Speed --"
+AvailableSpaceMB=`stat -f --printf="%a %s\n" . | awk '{print int($1*$2/1024/1024)}'`
+TargetFileSize=$(( $AvailableSpaceMB /2 ))
+
+dtestfile=./dtestfile.$$.$RANDOM
+function finish {
+  rm -f "$dtestfile"
+}
+trap finish EXIT
+
+pmsg "Uncached File Write:"
+t1=`date +%s`
+timeout 10 dd if=/dev/zero of=$dtestfile bs=$ddbs count=$TargetFileSize oflag=direct 2>/dev/null
+t2=`date +%s`
+dtesttime=$(( $t2 - $t1 ))
+dtestsize_byte=$(stat -c%s "$dtestfile")
+WriteSpeed=`echo | awk "{ print $dtestsize_byte/1024/1024 / $dtesttime }"`
+pres $WriteSpeed MB/s
+
+pmsg "Uncached File Read:"
+t1=`date +%s`
+dd if=$dtestfile of=/dev/null bs=$ddbs iflag=direct 2>/dev/null
+t2=`date +%s`
+dtesttime=$(( $t2 - $t1 ))
+ReadSpeed=`echo | awk "{ print $dtestsize_byte/1024/1024 / $dtesttime }"`
+pres $ReadSpeed MB/s
+
+rm -f "$dtestfile"
+
+echo
+
+####
+
+echo "-- Testing Pipe/Memory Speed --"
+pmsg "Pipe throughput:"
+t1=`date +%s`
+#PipeWritten=`timeout 10 dd if=/dev/zero bs=4M count=1024 2>/dev/null | wc -c`
+PipeWritten=`( timeout -s 2 10 dd if=/dev/zero bs=$ddbs | dd of=/dev/null bs=$ddbs ) 2>&1 | tail -1 | awk '{print $1}'`
+t2=`date +%s`
+PipeSpeed=`echo | awk "{ print $PipeWritten /1024/1024 / $dtesttime }"`
+pres $PipeSpeed MB/s
+echo
+
