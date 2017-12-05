@@ -29,11 +29,11 @@ function pres {
 echo "-- Testing CPU --"
 
 pmsg "RSA 1024bit Key sign and verify:"
-rsaout=`openssl speed rsa1024 -mr -multi $(nproc --all) 2>&1 | tail -1`
+rsaout=`openssl speed -mr -multi $(nproc --all) rsa1024 2>&1 | tail -1`
 pres `echo "$rsaout" | tr : ' ' | awk '{ print 1/($4+$5) } '` "/s"
 
 pmsg "AES-128 encryption (maybe in hardware):"
-aesout=`openssl speed aes-128-cbc -mr -multi $(nproc --all) 2>&1 | tail -1`
+aesout=`openssl speed -mr -multi $(nproc --all) aes-128-cbc 2>&1 | tail -1`
 pres `echo "$aesout" | cut -f2 -d\  | tr : ' ' | awk '{ print ($1+$2+$3+$4+$5)/5/1024/1024 }'` MB/s
 echo
 
